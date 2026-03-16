@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+from nanobot.config.paths import get_media_dir
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
@@ -102,6 +103,7 @@ class SubagentManager:
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
+                extra_allowed_dirs=[str(get_media_dir())] if self.restrict_to_workspace else None,
                 path_append=self.exec_config.path_append,
             ))
             tools.register(WebSearchTool(config=self.web_search_config, proxy=self.web_proxy))

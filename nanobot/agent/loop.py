@@ -18,6 +18,7 @@ from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+from nanobot.config.paths import get_media_dir
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -123,6 +124,7 @@ class AgentLoop:
             working_dir=str(self.workspace),
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
+            extra_allowed_dirs=[str(get_media_dir())] if self.restrict_to_workspace else None,
             path_append=self.exec_config.path_append,
         ))
         self.tools.register(WebSearchTool(config=self.web_search_config, proxy=self.web_proxy))

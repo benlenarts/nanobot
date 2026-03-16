@@ -19,6 +19,7 @@ class ExecTool(Tool):
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
+        extra_allowed_dirs: list[str] | None = None,
         path_append: str = "",
     ):
         self.timeout = timeout
@@ -36,6 +37,7 @@ class ExecTool(Tool):
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
+        self.extra_allowed_dirs = extra_allowed_dirs or []
         self.path_append = path_append
 
     @property
@@ -158,7 +160,7 @@ class ExecTool(Tool):
             if "..\\" in cmd or "../" in cmd:
                 return "Error: Command blocked by safety guard (path traversal detected)"
 
-            cwd_path = Path(cwd).resolve()
+            allowed = [Path(cwd).resolve()] + [Path(d).resolve() for d in self.extra_allowed_dirs]
 
             for raw in self._extract_absolute_paths(cmd):
                 try:
@@ -166,7 +168,7 @@ class ExecTool(Tool):
                     p = Path(expanded).expanduser().resolve()
                 except Exception:
                     continue
-                if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
+                if p.is_absolute() and not any(p == a or a in p.parents for a in allowed):
                     return "Error: Command blocked by safety guard (path outside working dir)"
 
         return None
