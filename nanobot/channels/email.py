@@ -1,6 +1,7 @@
 """Email channel implementation using IMAP polling + SMTP replies."""
 
 import asyncio
+from fnmatch import fnmatch
 import html
 import imaplib
 import re
@@ -61,7 +62,7 @@ class EmailConfig(Base):
 
     # Attachment handling
     save_attachments: bool = False  # Save inbound attachments to media dir
-    allowed_attachment_types: list[str] = Field(default_factory=list)  # Empty = all types; e.g. ["application/pdf"]
+    allowed_attachment_types: list[str] = Field(default_factory=list)  # Empty = none; ["*"] = all; e.g. ["application/pdf"]
     max_attachment_size: int = 2_000_000  # 2MB per attachment
     max_attachments_per_email: int = 5
 
@@ -590,7 +591,7 @@ class EmailChannel(BaseChannel):
                 continue
 
             content_type = part.get_content_type()
-            if allowed_types and content_type not in allowed_types:
+            if not any(fnmatch(content_type, pat) for pat in allowed_types):
                 logger.debug("Email attachment skipped (type {}): not in allowed list", content_type)
                 continue
 
