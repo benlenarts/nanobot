@@ -121,6 +121,7 @@ class SubagentManager:
                     working_dir=str(self.workspace),
                     timeout=self.exec_config.timeout,
                     restrict_to_workspace=self.restrict_to_workspace,
+                    extra_allowed_dirs=[get_media_dir()] if self.restrict_to_workspace else None,
                     path_append=self.exec_config.path_append,
                 ))
             tools.register(WebSearchTool(config=self.web_search_config, proxy=self.web_proxy))
