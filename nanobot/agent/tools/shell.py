@@ -22,10 +22,12 @@ class ExecTool(Tool):
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
+        extra_allowed_dirs: list[Path] | None = None,
         path_append: str = "",
     ):
         self.timeout = timeout
         self.working_dir = working_dir
+        self.extra_allowed_dirs = extra_allowed_dirs or []
         self.deny_patterns = deny_patterns or [
             r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
             r"\bdel\s+/[fq]\b",              # del /f, del /q
@@ -179,8 +181,9 @@ class ExecTool(Tool):
                     p = Path(expanded).expanduser().resolve()
                 except Exception:
                     continue
-                if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
-                    return "Error: Command blocked by safety guard (path outside working dir)"
+                allowed = [cwd_path] + [d.resolve() for d in self.extra_allowed_dirs]
+                if p.is_absolute() and not any(a in p.parents or p == a for a in allowed):
+                    return "Error: Command blocked by safety guard (path outside allowed dirs)"
 
         return None
 
