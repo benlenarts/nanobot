@@ -58,6 +58,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
 from nanobot.command.router import normalize_command_text
 from nanobot.config.schema import AgentDefaults, ModelPresetConfig
+from nanobot.cron.session_turns import cron_trigger
 from nanobot.events import NO_EVENTS, AgentEvent, EventSink
 from nanobot.llm_usage.context import source_from_request
 from nanobot.providers.base import LLMProvider, LLMUsage, ProviderConversationState
@@ -99,6 +100,7 @@ from nanobot.session.summary import (
     SessionSummary,
     SessionSummaryCheckpoint,
 )
+from nanobot.triggers.local_session_turns import local_trigger
 from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanobot.utils.cancellation import task_is_cancelling
 from nanobot.utils.document import reference_non_image_attachments
@@ -191,6 +193,22 @@ class TurnContext:
         if self.session is None:
             raise RuntimeError("turn session is not initialized; RESTORE must run before this stage")
         return self.session
+
+
+def _is_background_turn(msg: InboundMessage) -> bool:
+    """True when a turn runs with no interactive user waiting on the reply.
+
+    That means the automation paths whose assembled response is auto-published
+    to a bound chat: scheduled cron jobs and local triggers. Such a turn ending
+    with no assistant text is a legitimate silent outcome — e.g. a monitor that
+    found nothing to report — so it must not deliver the
+    ``EMPTY_FINAL_RESPONSE_MESSAGE`` placeholder, which would otherwise reach
+    the chat as a spurious message on every no-op run.
+
+    Keyed off the metadata each coordinator stamps rather than ``sender_id``,
+    which is a per-trigger setting a local trigger may override.
+    """
+    return cron_trigger(msg.metadata) is not None or local_trigger(msg.metadata) is not None
 
 
 class AgentLoop:
@@ -2015,9 +2033,17 @@ class AgentLoop:
         session = ctx.require_session()
         turn_continuation.prepare_save_boundary(ctx)
 
-        if (
+        blank_final = ctx.final_content is None or not ctx.final_content.strip()
+        if _is_background_turn(ctx.msg):
+            # AgentRunner substitutes the placeholder itself the moment the model
+            # returns blank text, so a background turn usually arrives here with
+            # it already in place rather than with an empty final. Suppress both
+            # shapes, otherwise the earlier substitution slips past this guard.
+            if blank_final or ctx.stop_reason == "empty_final_response":
+                ctx.suppress_response = True
+        elif (
             ctx.kind is TurnKind.USER
-            and (ctx.final_content is None or not ctx.final_content.strip())
+            and blank_final
             and not ctx.suppress_response
         ):
             ctx.final_content = EMPTY_FINAL_RESPONSE_MESSAGE
