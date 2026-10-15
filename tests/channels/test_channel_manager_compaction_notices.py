@@ -1,10 +1,9 @@
-"""Context-compaction lifecycle notices are delivered regardless of ``send_progress``.
+"""Context-compaction notices follow ``send_progress``, except failures.
 
-Compaction changes the context of every later turn, so both the start and
-the outcome of a compaction are information for the user, not progress
-chatter: a channel with ``send_progress`` off still receives them. Reducing
-the noise (one message updated in place) is the adapter's job; see the
-Discord channel (#5719).
+Idle auto-compaction runs after every quiet spell, so on a channel fed by
+frequent scheduled jobs its notices become routine chatter. A channel with
+``send_progress`` off gets only a failed compaction; a channel with it on
+gets the full lifecycle.
 """
 
 from __future__ import annotations
@@ -70,20 +69,42 @@ def _sent_contents(manager: ChannelManager) -> list[str]:
     return [call.args[0].content for call in manager.channels["mock"]._send_mock.await_args_list]
 
 
-@pytest.mark.asyncio
-async def test_compaction_lifecycle_is_delivered_with_progress_off(manager: ChannelManager) -> None:
-    manager.channels["mock"].send_progress = False
-    for event in (
-        ProgressEvent(content="ordinary progress"),
-        ContextCompactionEvent(compaction_id="c1", phase="started"),
-        ContextCompactionEvent(compaction_id="c1", phase="succeeded"),
-    ):
+async def _publish(manager: ChannelManager, *events) -> None:
+    for event in events:
         await manager.bus.publish_outbound(
             outbound_message_for_event(channel="mock", chat_id="chat", event=event)
         )
 
+
+@pytest.mark.asyncio
+async def test_compaction_notices_suppressed_with_progress_off(manager: ChannelManager) -> None:
+    manager.channels["mock"].send_progress = False
+    await _publish(
+        manager,
+        ProgressEvent(content="ordinary progress"),
+        ContextCompactionEvent(compaction_id="c1", phase="started"),
+        ContextCompactionEvent(compaction_id="c1", phase="succeeded"),
+        ContextCompactionEvent(compaction_id="c2", phase="started"),
+        ContextCompactionEvent(compaction_id="c2", phase="cancelled"),
+        ContextCompactionEvent(compaction_id="c3", phase="started"),
+        ContextCompactionEvent(compaction_id="c3", phase="failed"),
+    )
+
+    await _dispatch_until(manager, 1)
+
+    sent = [call.args[0].event for call in manager.channels["mock"]._send_mock.await_args_list]
+    assert sent == [ContextCompactionEvent(compaction_id="c3", phase="failed")]
+
+
+@pytest.mark.asyncio
+async def test_compaction_lifecycle_is_delivered_with_progress_on(manager: ChannelManager) -> None:
+    manager.channels["mock"].send_progress = True
+    await _publish(
+        manager,
+        ContextCompactionEvent(compaction_id="c1", phase="started"),
+        ContextCompactionEvent(compaction_id="c1", phase="succeeded"),
+    )
+
     await _dispatch_until(manager, 2)
 
-    contents = _sent_contents(manager)
-    assert "ordinary progress" not in contents
-    assert len(contents) == 2
+    assert len(_sent_contents(manager)) == 2

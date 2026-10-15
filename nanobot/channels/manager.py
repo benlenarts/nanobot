@@ -15,6 +15,7 @@ from loguru import logger
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import (
+    ContextCompactionEvent,
     ProgressEvent,
     RetryWaitEvent,
     RuntimeModelUpdatedEvent,
@@ -811,6 +812,16 @@ class ChannelManager:
                         continue
 
                 if isinstance(event, RetryWaitEvent):
+                    continue
+
+                # Idle auto-compaction runs after every quiet spell, so on a
+                # channel fed by frequent scheduled jobs its notices become
+                # routine chatter. With progress off, only a failure is shown.
+                if (
+                    isinstance(event, ContextCompactionEvent)
+                    and event.phase != "failed"
+                    and not self._should_send_progress(msg.channel)
+                ):
                     continue
 
                 if (
